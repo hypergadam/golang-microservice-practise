@@ -89,6 +89,8 @@ func (s *stockServiceUseCase) AddStockItem(ctx context.Context, stockItem domain
 				Count: stockItem.Count,
 				Price: stockItem.Price,
 			})
+
+			return nil
 		}
 
 		span.SetAttributes(attribute.String("error.message", err.Error()))

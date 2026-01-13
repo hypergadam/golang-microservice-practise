@@ -8,7 +8,7 @@ ifeq ($(POSTGRES_SETUP),)
 endif
 LOCAL_BIN=$(CURDIR)/bin
 
-.PHONY: build run test clean migration-create migration-up migration-down migration-status migration-reset generate-mock docker-build install-deps vendor-proto get-deps generate-stocks-proto
+.PHONY: build run test test-integration test-integration-down clean migration-create migration-up migration-down migration-status migration-reset generate-mock docker-build install-deps vendor-proto get-deps generate-stocks-proto
 
 build:
 	@echo "Building $(APP_NAME)..."
@@ -26,6 +26,15 @@ test:
 	@echo "Testing $(APP_NAME)..."
 	@go test -v ./...
 
+test-integration:
+	@echo "Running integration tests with Docker..."
+	@docker compose -f docker-compose.integration.yaml up --build --abort-on-container-exit --exit-code-from stocks_integration_tests
+	@docker compose -f docker-compose.integration.yaml down -v
+
+test-integration-down:
+	@echo "Cleaning up integration test containers..."
+	@docker compose -f docker-compose.integration.yaml down -v
+
 clean:
 	@echo "Cleaning $(APP_NAME)..."
 	@rm -rf $(BIN_DIR)
@@ -40,7 +49,7 @@ migration-up:
 
 migration-down:
 	@goose -dir $(MIGRATION_DIR) postgres "$(POSTGRES_SETUP)" down
-
+		
 migration-reset:
 	@goose -dir $(MIGRATION_DIR) postgres "$(POSTGRES_SETUP)" reset
 

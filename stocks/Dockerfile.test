@@ -1,0 +1,18 @@
+# Dockerfile for running integration tests
+FROM golang:1.24-alpine
+
+# Install necessary packages
+RUN apk add --no-cache git gcc musl-dev
+
+# Set working directory
+WORKDIR /app
+
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the source code
+COPY . .
+
+# Default command runs all tests with integration tag
+CMD ["go", "test", "-v", "-tags=integration", "./..."]

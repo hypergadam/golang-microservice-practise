@@ -1,0 +1,116 @@
+version: "3.8"
+
+services:
+  # PostgreSQL database for integration tests
+  stocks_test_db:
+    image: postgres:17.5-alpine3.21
+    container_name: stocks_test_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: stocks_service_test_db
+    ports:
+      - "127.0.0.1:5437:5432"
+    networks:
+      - stocks-test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d stocks_service_test_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    tmpfs:
+      - /var/lib/postgresql/data  # Use tmpfs for faster tests
+
+  # Database migrator
+  stocks_test_migrator:
+    image: kukymbr/goose-docker:3.24.0
+    container_name: stocks_test_migrator
+    working_dir: /migrations
+    volumes:
+      - ./internal/migrations:/migrations
+    depends_on:
+      stocks_test_db:
+        condition: service_healthy
+    networks:
+      - stocks-test-network
+    environment:
+      - GOOSE_DRIVER=postgres
+      - GOOSE_DBSTRING=host=stocks_test_db user=postgres password=12345 dbname=stocks_service_test_db sslmode=disable
+    command: >
+      sh -c "
+      goose -dir=/migrations postgres
+      'host=stocks_test_db user=postgres password=12345 dbname=stocks_service_test_db sslmode=disable' up"
+
+  # Kafka for integration tests
+  zookeeper_test:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper_stocks_test
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - stocks-test-network
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kafka_test:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka_stocks_test
+    depends_on:
+      zookeeper_test:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper_test:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka_test:9092,PLAINTEXT_HOST://localhost:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - stocks-test-network
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  # Integration test runner
+  stocks_integration_tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: stocks_integration_tests
+    depends_on:
+      stocks_test_db:
+        condition: service_healthy
+      stocks_test_migrator:
+        condition: service_completed_successfully
+      kafka_test:
+        condition: service_healthy
+    environment:
+      DB_HOST: stocks_test_db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: 12345
+      DB_NAME: stocks_service_test_db
+      KAFKA_BROKERS: kafka_test:9092
+      SERVICE_NAME: stocks_service_test
+      TEST_MODE: integration
+    volumes:
+      - ./:/app
+      - go-mod-cache:/go/pkg/mod
+    working_dir: /app
+    networks:
+      - stocks-test-network
+    command: ["go", "test", "-v", "-tags=integration", "./..."]
+
+networks:
+  stocks-test-network:
+    driver: bridge
+
+volumes:
+  go-mod-cache:

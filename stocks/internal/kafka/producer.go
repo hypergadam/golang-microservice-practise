@@ -11,6 +11,9 @@ import (
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
 
+//go:generate mkdir -p mock
+//go:generate minimock -o ./mock/ -s .go -g
+
 const (
 	flushTimeout = 5000
 )
